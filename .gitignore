@@ -8,4 +8,5 @@
 captures/
 *.apk
 .kotlin/
-.vscode/
+config.bat
+node_modules

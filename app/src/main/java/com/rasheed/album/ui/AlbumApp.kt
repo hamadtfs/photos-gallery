@@ -149,6 +149,7 @@ fun AlbumApp(viewModel: AlbumViewModel) {
     var closeViewerOnSuccess by remember { mutableStateOf(false) }
     var editingPhoto by remember { mutableStateOf<MediaFile?>(null) }
     var collageItems by remember { mutableStateOf<List<MediaFile>?>(null) }
+    var albumsPane by remember { mutableStateOf(AlbumsPane.Home) }
     var privatePrompt by remember { mutableStateOf<PrivatePrompt?>(null) }
     val colors = LocalAlbumColors.current
     val widthDp = LocalConfiguration.current.screenWidthDp
@@ -197,13 +198,17 @@ fun AlbumApp(viewModel: AlbumViewModel) {
         selected = emptySet()
     }
 
-    val onAlbumsRoot = state.tab == "albums" && state.folderKey == null && !state.searching
+    val onAlbumsRoot =
+        (state.tab == "albums" || state.tab == "media") && state.folderKey == null && !state.searching
     val shown = state.browseList()
     val photosHome = state.tab == "photos" && state.folderKey == null && !state.searching && !selectionMode
     val viewerKey = when {
         state.searching -> "search"
         state.folderKey != null -> state.folderKey!!
         else -> "all"
+    }
+    LaunchedEffect(state.tab) {
+        if (state.tab != "albums") albumsPane = AlbumsPane.Home
     }
     val inTrash = state.folderKey == "trash"
     val granted = state.access != Access.None
@@ -223,7 +228,13 @@ fun AlbumApp(viewModel: AlbumViewModel) {
     }
 
     val interceptBack =
-        collageItems != null || editingPhoto != null || selectionMode || state.searching || state.folderKey != null || showViewer
+        collageItems != null ||
+            editingPhoto != null ||
+            selectionMode ||
+            state.searching ||
+            state.folderKey != null ||
+            showViewer ||
+            (state.tab == "albums" && albumsPane == AlbumsPane.More)
     BackHandler(enabled = interceptBack) {
         when {
             collageItems != null -> collageItems = null
@@ -238,6 +249,7 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                 if (state.folderKey == "private") viewModel.lockPrivate()
                 viewModel.closeFolder()
             }
+            state.tab == "albums" && albumsPane == AlbumsPane.More -> albumsPane = AlbumsPane.Home
         }
     }
 
@@ -339,9 +351,22 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                                     }
                                 },
                             )
+                            state.tab == "albums" && albumsPane == AlbumsPane.More -> FolderTopBar(
+                                title = "More albums",
+                                count = rememberGroups(state).more.size,
+                                mediaSort = state.mediaSort,
+                                onBack = { albumsPane = AlbumsPane.Home },
+                                onSearch = viewModel::openSearch,
+                                onMediaSort = viewModel::setMediaSort,
+                                onShare = null,
+                            )
                             else -> RootTopBar(
-                                title = if (state.tab == "albums") "Albums" else "Photos",
-                                albumsMenu = state.tab == "albums",
+                                title = when (state.tab) {
+                                    "albums" -> "Albums"
+                                    "media" -> "Media"
+                                    else -> "Photos"
+                                },
+                                albumsMenu = state.tab == "albums" || state.tab == "media",
                                 menuOpen = menuOpen,
                                 multiRow = state.multiRow,
                                 sort = state.sort,
@@ -442,11 +467,21 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                             }
                         },
                     )
-                } else if (granted && !showViewer && !state.searching && state.folderKey == null && !selectionMode) {
+                } else if (granted && !showViewer && !state.searching && state.folderKey == null && !selectionMode && collageItems == null) {
                     AlbumNavBar(
                         tab = state.tab,
-                        onPhotos = { viewModel.setTab("photos") },
-                        onAlbums = { viewModel.setTab("albums") },
+                        onPhotos = {
+                            albumsPane = AlbumsPane.Home
+                            viewModel.setTab("photos")
+                        },
+                        onAlbums = {
+                            albumsPane = AlbumsPane.Home
+                            viewModel.setTab("albums")
+                        },
+                        onMedia = {
+                            albumsPane = AlbumsPane.Home
+                            viewModel.setTab("media")
+                        },
                     )
                 }
             },
@@ -541,7 +576,13 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                     )
                     onAlbumsRoot -> {
                         val groups = rememberGroups(state)
+                        val pane = when (state.tab) {
+                            "media" -> AlbumsPane.Media
+                            "albums" -> albumsPane
+                            else -> AlbumsPane.Home
+                        }
                         AlbumsScreen(
+                            pane = pane,
                             groups = groups,
                             pinned = state.pinned,
                             multiRow = state.multiRow,
@@ -551,6 +592,7 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                                 if (album.key == "private") openPrivateAlbum()
                                 else viewModel.openFolder(album.key, album.title)
                             },
+                            onOpenMore = { albumsPane = AlbumsPane.More },
                             onPin = viewModel::pin,
                             onUnpin = viewModel::unpin,
                             onHide = viewModel::hideAlbum,
@@ -1177,7 +1219,12 @@ private fun PartialBanner(onAllow: () -> Unit) {
 }
 
 @Composable
-private fun AlbumNavBar(tab: String, onPhotos: () -> Unit, onAlbums: () -> Unit) {
+private fun AlbumNavBar(
+    tab: String,
+    onPhotos: () -> Unit,
+    onAlbums: () -> Unit,
+    onMedia: () -> Unit,
+) {
     val page = LocalAlbumColors.current
     val colors = NavigationBarItemDefaults.colors(
         selectedIconColor = page.ink,
@@ -1205,6 +1252,15 @@ private fun AlbumNavBar(tab: String, onPhotos: () -> Unit, onAlbums: () -> Unit)
                     Icon(if (tab == "albums") Icons.Filled.GridView else Icons.Outlined.GridView, null)
                 },
                 label = { Text("Albums") },
+                colors = colors,
+            )
+            NavigationBarItem(
+                selected = tab == "media",
+                onClick = onMedia,
+                icon = {
+                    Icon(Icons.Outlined.Dashboard, null)
+                },
+                label = { Text("Media") },
                 colors = colors,
             )
         }
