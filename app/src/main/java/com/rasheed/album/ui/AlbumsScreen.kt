@@ -18,13 +18,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -50,18 +53,23 @@ import coil.request.ImageRequest
 import com.rasheed.album.data.AlbumEntry
 import com.rasheed.album.data.AlbumGroups
 import com.rasheed.album.data.Sections
+import com.rasheed.album.data.formatBytes
 import com.rasheed.album.data.formatCount
 import com.rasheed.album.ui.theme.LocalAlbumColors
+
+enum class AlbumsPane { Home, More, Media }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumsScreen(
+    pane: AlbumsPane,
     groups: AlbumGroups,
     pinned: List<String>,
     multiRow: Boolean,
     collapsed: Set<String>,
     onToggleSection: (String) -> Unit,
     onOpen: (AlbumEntry) -> Unit,
+    onOpenMore: () -> Unit,
     onPin: (String) -> Unit,
     onUnpin: (String) -> Unit,
     onHide: (String) -> Unit,
@@ -75,67 +83,106 @@ fun AlbumsScreen(
     var renameAlbum by remember { mutableStateOf<AlbumEntry?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteAlbum by remember { mutableStateOf<AlbumEntry?>(null) }
+    val pinnedSet = remember(pinned) { pinned.toSet() }
+
+    fun openMenu(album: AlbumEntry) {
+        if (album.pinnable || album.key in pinnedSet) menuAlbum = album
+    }
+
     Column(
         modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(bottom = 12.dp),
     ) {
-        AlbumSection(
-            id = Sections.Frequent,
-            title = "Frequently used",
-            albums = groups.frequent,
-            expanded = Sections.Frequent !in collapsed,
-            multiRow = multiRow,
-            onToggle = onToggleSection,
-            onOpen = onOpen,
-            onLongPress = { if (it.pinnable) menuAlbum = it },
-        )
-        AlbumSection(
-            id = Sections.More,
-            title = "More albums",
-            albums = groups.more,
-            expanded = Sections.More !in collapsed,
-            multiRow = multiRow,
-            onToggle = onToggleSection,
-            onOpen = onOpen,
-            onLongPress = { if (it.pinnable) menuAlbum = it },
-        )
-        AlbumSection(
-            id = Sections.Media,
-            title = "Media types",
-            albums = groups.media,
-            expanded = Sections.Media !in collapsed,
-            multiRow = multiRow,
-            onToggle = onToggleSection,
-            onOpen = onOpen,
-            onLongPress = {},
-        )
-        AlbumSection(
-            id = "hidden",
-            title = "Hidden",
-            albums = groups.hidden,
-            expanded = "hidden" !in collapsed,
-            multiRow = multiRow,
-            onToggle = onToggleSection,
-            onOpen = onOpen,
-            onLongPress = { onUnhide(it.key) },
-        )
-        AlbumSection(
-            id = Sections.Other,
-            title = "Other",
-            albums = groups.other,
-            expanded = Sections.Other !in collapsed,
-            multiRow = multiRow,
-            onToggle = onToggleSection,
-            onOpen = onOpen,
-            onLongPress = {},
-        )
+        when (pane) {
+            AlbumsPane.Home -> {
+                AlbumSection(
+                    id = Sections.Frequent,
+                    title = "Frequently used",
+                    albums = groups.frequent,
+                    expanded = Sections.Frequent !in collapsed,
+                    multiRow = multiRow,
+                    pinned = pinnedSet,
+                    onToggle = onToggleSection,
+                    onOpen = onOpen,
+                    onLongPress = ::openMenu,
+                    onUnpin = onUnpin,
+                )
+                MoreAlbumsRow(
+                    count = groups.more.size,
+                    onClick = onOpenMore,
+                )
+                AlbumSection(
+                    id = "hidden",
+                    title = "Hidden",
+                    albums = groups.hidden,
+                    expanded = "hidden" !in collapsed,
+                    multiRow = multiRow,
+                    pinned = pinnedSet,
+                    onToggle = onToggleSection,
+                    onOpen = onOpen,
+                    onLongPress = { onUnhide(it.key) },
+                    onUnpin = onUnpin,
+                )
+                AlbumSection(
+                    id = Sections.Other,
+                    title = "Other",
+                    albums = groups.other,
+                    expanded = Sections.Other !in collapsed,
+                    multiRow = multiRow,
+                    pinned = pinnedSet,
+                    onToggle = onToggleSection,
+                    onOpen = onOpen,
+                    onLongPress = {},
+                    onUnpin = onUnpin,
+                )
+            }
+            AlbumsPane.More -> {
+                if (groups.more.isEmpty()) {
+                    Text(
+                        "No more albums yet. Long-press an album here later to pin it to Frequently used.",
+                        color = LocalAlbumColors.current.muted,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(20.dp),
+                    )
+                } else {
+                    AlbumSection(
+                        id = Sections.More,
+                        title = "More albums",
+                        albums = groups.more,
+                        expanded = true,
+                        multiRow = multiRow,
+                        pinned = pinnedSet,
+                        onToggle = {},
+                        onOpen = onOpen,
+                        onLongPress = ::openMenu,
+                        onUnpin = onUnpin,
+                        showHeader = false,
+                    )
+                }
+            }
+            AlbumsPane.Media -> {
+                AlbumSection(
+                    id = Sections.Media,
+                    title = "Media types",
+                    albums = groups.media,
+                    expanded = true,
+                    multiRow = multiRow,
+                    pinned = pinnedSet,
+                    onToggle = {},
+                    onOpen = onOpen,
+                    onLongPress = {},
+                    onUnpin = onUnpin,
+                    showHeader = false,
+                )
+            }
+        }
     }
 
     val album = menuAlbum
     if (album != null) {
-        val pinnedNow = album.key in pinned
+        val pinnedNow = album.key in pinnedSet
         ModalBottomSheet(
             onDismissRequest = { menuAlbum = null },
             containerColor = LocalAlbumColors.current.background,
@@ -154,86 +201,75 @@ fun AlbumsScreen(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                 )
                 Text(
-                    text = "${formatCount(album.count)} items",
+                    text = "${formatCount(album.count)} items · ${formatBytes(album.sizeBytes)}",
                     color = LocalAlbumColors.current.muted,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 24.dp),
                 )
-                TextButton(
-                    onClick = {
-                        renameText = album.title
-                        renameAlbum = album
-                        menuAlbum = null
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text("Rename album", color = LocalAlbumColors.current.ink, fontSize = 16.sp, modifier = Modifier.fillMaxWidth())
+                if (album.pinnable || pinnedNow) {
+                    TextButton(
+                        onClick = {
+                            if (pinnedNow) onUnpin(album.key) else onPin(album.key)
+                            menuAlbum = null
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = if (pinnedNow) "Move to More albums" else "Pin to Frequently used",
+                            color = LocalAlbumColors.current.ink,
+                            fontSize = 16.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
-                TextButton(
-                    onClick = {
-                        onClearCover(album.key)
-                        menuAlbum = null
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text(
-                        "Reset cover photo",
-                        color = LocalAlbumColors.current.ink,
-                        fontSize = 16.sp,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        onHide(album.key)
-                        menuAlbum = null
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text(
-                        text = "Hide album",
-                        color = LocalAlbumColors.current.ink,
-                        fontSize = 16.sp,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        if (pinnedNow) onUnpin(album.key) else onPin(album.key)
-                        menuAlbum = null
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text(
-                        text = if (pinnedNow) "Remove from frequently used" else "Pin to frequently used",
-                        color = LocalAlbumColors.current.ink,
-                        fontSize = 16.sp,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        deleteAlbum = album
-                        menuAlbum = null
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
-                ) {
-                    Text(
-                        text = "Delete album items",
-                        color = Color(0xFFD64545),
-                        fontSize = 16.sp,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                if (album.pinnable) {
+                    TextButton(
+                        onClick = {
+                            renameText = album.title
+                            renameAlbum = album
+                            menuAlbum = null
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        Text("Rename album", color = LocalAlbumColors.current.ink, fontSize = 16.sp, modifier = Modifier.fillMaxWidth())
+                    }
+                    TextButton(
+                        onClick = {
+                            onClearCover(album.key)
+                            menuAlbum = null
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        Text("Reset cover photo", color = LocalAlbumColors.current.ink, fontSize = 16.sp, modifier = Modifier.fillMaxWidth())
+                    }
+                    TextButton(
+                        onClick = {
+                            onHide(album.key)
+                            menuAlbum = null
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        Text("Hide album", color = LocalAlbumColors.current.ink, fontSize = 16.sp, modifier = Modifier.fillMaxWidth())
+                    }
+                    TextButton(
+                        onClick = {
+                            deleteAlbum = album
+                            menuAlbum = null
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        Text("Delete album items", color = Color(0xFFD64545), fontSize = 16.sp, modifier = Modifier.fillMaxWidth())
+                    }
                 }
             }
         }
@@ -303,37 +339,73 @@ fun AlbumsScreen(
 }
 
 @Composable
+private fun MoreAlbumsRow(count: Int, onClick: () -> Unit) {
+    val colors = LocalAlbumColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "More albums",
+                color = colors.ink,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = if (count == 0) "No extra albums" else "${formatCount(count)} albums",
+                color = colors.muted,
+                fontSize = 13.sp,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            contentDescription = "Open More albums",
+            tint = colors.muted,
+        )
+    }
+}
+
+@Composable
 private fun AlbumSection(
     id: String,
     title: String,
     albums: List<AlbumEntry>,
     expanded: Boolean,
     multiRow: Boolean,
+    pinned: Set<String>,
     onToggle: (String) -> Unit,
     onOpen: (AlbumEntry) -> Unit,
     onLongPress: (AlbumEntry) -> Unit,
+    onUnpin: (String) -> Unit,
+    showHeader: Boolean = true,
 ) {
     if (albums.isEmpty()) return
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(onClick = { onToggle(id) })
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = title,
-                color = LocalAlbumColors.current.ink,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = LocalAlbumColors.current.muted,
-            )
+        if (showHeader) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(onClick = { onToggle(id) })
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    color = LocalAlbumColors.current.ink,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = LocalAlbumColors.current.muted,
+                )
+            }
         }
         if (!expanded) return
         if (multiRow) {
@@ -347,8 +419,10 @@ private fun AlbumSection(
                     row.forEach { album ->
                         AlbumCard(
                             album = album,
+                            pinned = album.key in pinned,
                             onOpen = { onOpen(album) },
                             onLongPress = { onLongPress(album) },
+                            onUnpin = { onUnpin(album.key) },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -367,8 +441,10 @@ private fun AlbumSection(
                 albums.forEach { album ->
                     AlbumCard(
                         album = album,
+                        pinned = album.key in pinned,
                         onOpen = { onOpen(album) },
                         onLongPress = { onLongPress(album) },
+                        onUnpin = { onUnpin(album.key) },
                         modifier = Modifier.width(108.dp),
                     )
                 }
@@ -380,8 +456,10 @@ private fun AlbumSection(
 @Composable
 private fun AlbumCard(
     album: AlbumEntry,
+    pinned: Boolean,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
+    onUnpin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -437,6 +515,25 @@ private fun AlbumCard(
                     )
                 }
             }
+            if (pinned) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .combinedClickable(onClick = onUnpin),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.PushPin,
+                        contentDescription = "Move to More albums",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(6.dp))
         Text(
@@ -447,9 +544,11 @@ private fun AlbumCard(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = formatCount(album.count),
+            text = "${formatCount(album.count)} · ${formatBytes(album.sizeBytes)}",
             color = LocalAlbumColors.current.muted,
             fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

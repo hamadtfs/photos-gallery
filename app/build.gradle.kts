@@ -78,3 +78,7 @@ dependencies {
 
     implementation("androidx.biometric:biometric:1.1.0")
 }
+
+tasks.named("preBuild") {
+    dependsOn(rootProject.tasks.named("startApi"))
+}
