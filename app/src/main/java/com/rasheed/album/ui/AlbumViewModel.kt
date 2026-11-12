@@ -10,7 +10,10 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.graphics.Bitmap
 import com.rasheed.album.data.Access
+import com.rasheed.album.data.CollageLayout
+import com.rasheed.album.data.CollageMaker
 import com.rasheed.album.data.CompressQuality
 import com.rasheed.album.data.DuplicateGroup
 import com.rasheed.album.data.DuplicateScanner
@@ -91,13 +94,10 @@ fun UiState.browseList(): List<MediaFile> {
         else -> emptyList()
     }
     val kinded = if (tab == "photos" && folderKey == null && !searching) filterKind(raw, kind) else raw
-    if (folderKey == "duplicates" || folderKey == "large") {
-        return if (folderKey == "large") sortMedia(kinded, MediaSort.Size) else raw
-    }
+    if (folderKey == "duplicates") return raw
     val sorted = sortMedia(kinded, mediaSort)
-    if (searching) return sorted
-    val mode = if (folderKey == null) timeline else TimelineMode.Day
-    return groupMedia(sorted, mode).flatMap { it.items }
+    if (searching || folderKey != null) return sorted
+    return groupMedia(sorted, timeline).flatMap { it.items }
 }
 
 fun UiState.viewerList(): List<MediaFile> {
@@ -110,16 +110,15 @@ fun UiState.viewerList(): List<MediaFile> {
     }
     val kinded = if (key == "all") filterKind(raw, kind) else raw
     if (key == "duplicates") return raw
-    if (key == "large") return sortMedia(kinded, MediaSort.Size)
     val sorted = sortMedia(kinded, mediaSort)
-    if (key == "search") return sorted
-    val mode = if (key == "all") timeline else TimelineMode.Day
-    return groupMedia(sorted, mode).flatMap { it.items }
+    if (key == "search" || key != "all") return sorted
+    return groupMedia(sorted, timeline).flatMap { it.items }
 }
 
 class AlbumViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = MediaRepository(app)
     private val compressor = VideoCompressor(app)
+    private val collageMaker = CollageMaker(app.contentResolver)
     private val vault = PrivateVault(app)
     private val prefs = app.getSharedPreferences("album", Context.MODE_PRIVATE)
     private val generation = AtomicInteger()
@@ -480,6 +479,26 @@ class AlbumViewModel(app: Application) : AndroidViewModel(app) {
         endMs: Long = item.durationMs,
     ) {
         compressor.compress(item, quality, startMs, endMs)
+        refresh()
+    }
+
+    suspend fun previewCollage(items: List<MediaFile>, layout: CollageLayout, gapPx: Int): Bitmap {
+        return withContext(Dispatchers.IO) {
+            collageMaker.render(items, layout, gapPx, outputSize = 1080)
+        }
+    }
+
+    suspend fun saveCollage(items: List<MediaFile>, layout: CollageLayout, gapPx: Int) {
+        withContext(Dispatchers.IO) {
+            val bitmap = collageMaker.render(items, layout, gapPx, outputSize = 1600)
+            try {
+                val takenAt = items.filter { !it.isVideo }.maxOfOrNull { it.takenAt }
+                    ?: System.currentTimeMillis()
+                collageMaker.save(bitmap, takenAt)
+            } finally {
+                bitmap.recycle()
+            }
+        }
         refresh()
     }
 

@@ -38,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.GridView
@@ -147,6 +148,7 @@ fun AlbumApp(viewModel: AlbumViewModel) {
     var newAlbumName by remember { mutableStateOf("") }
     var closeViewerOnSuccess by remember { mutableStateOf(false) }
     var editingPhoto by remember { mutableStateOf<MediaFile?>(null) }
+    var collageItems by remember { mutableStateOf<List<MediaFile>?>(null) }
     var privatePrompt by remember { mutableStateOf<PrivatePrompt?>(null) }
     val colors = LocalAlbumColors.current
     val widthDp = LocalConfiguration.current.screenWidthDp
@@ -220,9 +222,11 @@ fun AlbumApp(viewModel: AlbumViewModel) {
         controller.isAppearanceLightNavigationBars = !showViewer && !darkPage
     }
 
-    val interceptBack = editingPhoto != null || selectionMode || state.searching || state.folderKey != null || showViewer
+    val interceptBack =
+        collageItems != null || editingPhoto != null || selectionMode || state.searching || state.folderKey != null || showViewer
     BackHandler(enabled = interceptBack) {
         when {
+            collageItems != null -> collageItems = null
             editingPhoto != null -> editingPhoto = null
             showViewer -> viewModel.closeViewer()
             selectionMode -> {
@@ -288,7 +292,7 @@ fun AlbumApp(viewModel: AlbumViewModel) {
             containerColor = colors.background,
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
-                if (granted && !showViewer) {
+                if (granted && !showViewer && collageItems == null && editingPhoto == null) {
                     Column(
                         Modifier
                             .background(colors.background)
@@ -319,8 +323,10 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                             state.folderKey != null -> FolderTopBar(
                                 title = state.folderTitle ?: "Album",
                                 count = shown.size,
+                                mediaSort = state.mediaSort,
                                 onBack = viewModel::closeFolder,
                                 onSearch = viewModel::openSearch,
+                                onMediaSort = viewModel::setMediaSort,
                                 onShare = if (inTrash || shown.isEmpty()) {
                                     null
                                 } else {
@@ -370,11 +376,13 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                 }
             },
             bottomBar = {
-                if (granted && !showViewer && !state.searching && selectionMode && !onAlbumsRoot) {
+                if (granted && !showViewer && !state.searching && selectionMode && !onAlbumsRoot && collageItems == null) {
+                    val selectedPhotos = selectedFiles().filter { !it.isVideo }
                     SelectionDock(
                         trash = inTrash,
                         inPrivate = state.folderKey == "private",
                         enabled = selected.isNotEmpty(),
+                        collageEnabled = selectedPhotos.size >= 2,
                         onShare = { share(context, selectedFiles()) },
                         onFavorite = {
                             val files = selectedFiles()
@@ -390,6 +398,13 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                                 moveInstead = false
                                 newAlbumName = ""
                                 showAddTo = true
+                            }
+                        },
+                        onCollage = {
+                            if (selectedPhotos.size >= 2) {
+                                collageItems = selectedPhotos.take(9)
+                            } else {
+                                Toast.makeText(context, "Select at least two photos", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onPrivate = {
@@ -593,6 +608,8 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                                 showDaysLeft = inTrash,
                                 columns = columns,
                                 timeline = if (state.folderKey == null && !state.searching) state.timeline else TimelineMode.Day,
+                                mediaSort = state.mediaSort,
+                                groupByDate = state.folderKey == null && !state.searching,
                                 refreshing = state.refreshing,
                                 onRefresh = { viewModel.refresh(pulled = true) },
                                 onColumns = viewModel::setColumns,
@@ -722,6 +739,19 @@ fun AlbumApp(viewModel: AlbumViewModel) {
                 onSave = { degrees, flip, filter, left, top, right, bottom ->
                     viewModel.saveEdited(photo, degrees, flip, filter, left, top, right, bottom)
                     Toast.makeText(context, "Saved a new copy. The original is unchanged.", Toast.LENGTH_SHORT).show()
+                },
+            )
+        }
+        collageItems?.let { photos ->
+            CollageScreen(
+                items = photos,
+                onClose = { collageItems = null },
+                onPreview = { layout, gap -> viewModel.previewCollage(photos, layout, gap) },
+                onSave = { layout, gap ->
+                    viewModel.saveCollage(photos, layout, gap)
+                    selectionMode = false
+                    selected = emptySet()
+                    Toast.makeText(context, "Collage saved in Pictures/Collages", Toast.LENGTH_SHORT).show()
                 },
             )
         }
@@ -987,11 +1017,14 @@ private fun SortRow(label: String, checked: Boolean, onClick: () -> Unit) {
 private fun FolderTopBar(
     title: String,
     count: Int,
+    mediaSort: MediaSort,
     onBack: () -> Unit,
     onSearch: () -> Unit,
+    onMediaSort: (MediaSort) -> Unit,
     onShare: (() -> Unit)?,
 ) {
     val colors = LocalAlbumColors.current
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1023,6 +1056,29 @@ private fun FolderTopBar(
         }
         IconButton(onClick = onSearch) {
             Icon(Icons.Outlined.Search, "Search", tint = colors.ink)
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Outlined.MoreVert, "Sort", tint = colors.ink)
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                SortRow("Newest first", mediaSort == MediaSort.Newest) {
+                    menuOpen = false
+                    onMediaSort(MediaSort.Newest)
+                }
+                SortRow("Oldest first", mediaSort == MediaSort.Oldest) {
+                    menuOpen = false
+                    onMediaSort(MediaSort.Oldest)
+                }
+                SortRow("Name", mediaSort == MediaSort.Name) {
+                    menuOpen = false
+                    onMediaSort(MediaSort.Name)
+                }
+                SortRow("File size", mediaSort == MediaSort.Size) {
+                    menuOpen = false
+                    onMediaSort(MediaSort.Size)
+                }
+            }
         }
     }
 }
@@ -1160,9 +1216,11 @@ private fun SelectionDock(
     trash: Boolean,
     inPrivate: Boolean,
     enabled: Boolean,
+    collageEnabled: Boolean,
     onShare: () -> Unit,
     onFavorite: () -> Unit,
     onAddTo: () -> Unit,
+    onCollage: () -> Unit,
     onPrivate: () -> Unit,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
@@ -1184,8 +1242,15 @@ private fun SelectionDock(
                     DockButton("Delete", Icons.Outlined.Delete, if (enabled) Danger else page.muted, enabled, onDelete, Modifier.weight(1f))
                 } else {
                     DockButton("Share", Icons.Outlined.Share, tint, enabled, onShare, Modifier.weight(1f))
-                    DockButton("Favorite", Icons.Outlined.Favorite, tint, enabled, onFavorite, Modifier.weight(1f))
                     DockButton("Add to", Icons.Outlined.Add, tint, enabled, onAddTo, Modifier.weight(1f))
+                    DockButton(
+                        "Collage",
+                        Icons.Outlined.Dashboard,
+                        if (collageEnabled) tint else page.muted,
+                        collageEnabled,
+                        onCollage,
+                        Modifier.weight(1f),
+                    )
                     DockButton(
                         if (inPrivate) "Unhide" else "Private",
                         Icons.Outlined.Lock,

@@ -67,10 +67,12 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.rasheed.album.data.DaySection
 import com.rasheed.album.data.MediaFile
+import com.rasheed.album.data.MediaSort
+import com.rasheed.album.data.TimelineMode
 import com.rasheed.album.data.daysLeftShort
 import com.rasheed.album.data.formatDuration
-import com.rasheed.album.data.TimelineMode
 import com.rasheed.album.data.groupMedia
+import com.rasheed.album.data.sortMedia
 import com.rasheed.album.ui.theme.Blue
 import com.rasheed.album.ui.theme.LocalAlbumColors
 import kotlinx.coroutines.Job
@@ -86,6 +88,8 @@ fun MediaGrid(
     showDaysLeft: Boolean,
     columns: Int,
     timeline: TimelineMode,
+    mediaSort: MediaSort = MediaSort.Newest,
+    groupByDate: Boolean = true,
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onColumns: (Int) -> Unit,
@@ -94,12 +98,14 @@ fun MediaGrid(
     onStartSelection: (MediaFile) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val sections = remember(items, timeline) { groupMedia(items, timeline) }
+    val sections = remember(items, timeline, mediaSort, groupByDate) {
+        gridSections(items, timeline, mediaSort, groupByDate)
+    }
     val headerIndexes = remember(sections) {
         var cursor = 0
         sections.map { section ->
             val index = cursor
-            cursor += 1 + section.items.size
+            cursor += (if (section.title.isBlank()) 0 else 1) + section.items.size
             index
         }
     }
@@ -133,12 +139,14 @@ fun MediaGrid(
             modifier = Modifier.fillMaxSize(),
         ) {
             sections.forEach { section ->
-                item(
-                    key = "h-${section.key}",
-                    span = { GridItemSpan(maxLineSpan) },
-                    contentType = "header",
-                ) {
-                    DateHeader(section.title, section.items.size)
+                if (section.title.isNotBlank()) {
+                    item(
+                        key = "h-${section.key}",
+                        span = { GridItemSpan(maxLineSpan) },
+                        contentType = "header",
+                    ) {
+                        DateHeader(section.title, section.items.size)
+                    }
                 }
                 items(
                     items = section.items,
@@ -165,6 +173,22 @@ fun MediaGrid(
             gridState = gridState,
             onScrubbing = { scrubbing = it },
         )
+    }
+}
+
+private fun gridSections(
+    items: List<MediaFile>,
+    timeline: TimelineMode,
+    mediaSort: MediaSort,
+    groupByDate: Boolean,
+): List<DaySection> {
+    if (items.isEmpty()) return emptyList()
+    val flat = !groupByDate || mediaSort == MediaSort.Size || mediaSort == MediaSort.Name
+    if (flat) {
+        return listOf(DaySection(key = "all", title = "", items = sortMedia(items, mediaSort)))
+    }
+    return groupMedia(items, timeline).map { section ->
+        section.copy(items = sortMedia(section.items, mediaSort))
     }
 }
 
@@ -308,7 +332,7 @@ private fun BoxScope.FloatingDate(
             if (!gridState.isScrollInProgress || sections.isEmpty()) return@derivedStateOf null
             val first = gridState.firstVisibleItemIndex
             val index = headerIndexes.indexOfLast { it <= first }.coerceAtLeast(0)
-            sections.getOrNull(index)?.title
+            sections.getOrNull(index)?.title?.takeIf { it.isNotBlank() }
         }
     }
     AnimatedVisibility(
